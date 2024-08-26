@@ -1,58 +1,79 @@
-
+import unittest
 import tensorflow as tf
 import numpy as np
 from util import fold, unfold
+import logging
 import matplotlib.pyplot as plt
 
-# Load a sample image
-(image, label), _ = tf.keras.datasets.cifar100.load_data()
-image = image[:1]  # Use the first image from CIFAR-100 for demonstration, batch size 1
-image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
-# Define patch size and strides
-patch_size = 4
-strides = 2
+class TestImageReconstruction(unittest.TestCase):
 
-# Unfold the image into patches
-patches = unfold(image, patch_size, strides, padding='VALID')
-print("Patches shape:", patches.shape)
+    def setUp(self):
+        # Load a sample image
+        (image, label), _ = tf.keras.datasets.cifar100.load_data()
+        self.image = image[:1]  # Use the first image from CIFAR-100 for demonstration, batch size 1
+        self.image = tf.image.convert_image_dtype(self.image, dtype=tf.float32)
 
-# Fold the patches back into the original image
-reconstructed_image = fold(patches, tf.keras.backend.int_shape(image)[1:3], patch_size, strides, padding='VALID')
-print("Reconstructed image shape:", reconstructed_image.shape)
+        # Define patch size
+        self.patch_size = 4
 
-# Convert back to the original scale (0-255) for visualization
-original_image = tf.squeeze(image).numpy()
-original_image = (original_image * 255).astype(np.uint8)
+    def test_image_reconstruction(self):
+        print()
+        for padding in ['VALID', 'SAME']:
+            for overlap in [True, False]:
+                strides = 2 if overlap else self.patch_size
 
-reconstructed_image = tf.squeeze(reconstructed_image)
-reconstructed_image = (reconstructed_image * 255).numpy().astype(np.uint8)
+                logging.info(f"Testing padding={padding}, overlap={'Yes' if overlap else 'No'}")
 
-# Extract the first 10 patches and reshape them for visualization
-first_10_patches = patches[0, 200:210]  # Select the first 10 patches
-first_10_patches = tf.reshape(first_10_patches, [-1, patch_size, patch_size, 3])
-first_10_patches = (first_10_patches * 255).numpy().astype(np.uint8)
+                # Unfold the image into patches
+                patches = unfold(self.image, self.patch_size, strides, padding=padding)
 
-# Plot the original, reconstructed images, and the first 10 patches
-plt.figure(figsize=(15, 8))
+                # Fold the patches back into the original image
+                reconstructed_image = fold(patches, tf.keras.backend.int_shape(self.image)[1:3], self.patch_size, strides, padding=padding)
 
-plt.subplot(2, 6, 1)
-plt.title("Original Image")
-plt.imshow(original_image)
-plt.axis('off')
+                # Convert images back to numpy arrays for comparison
+                original_image = tf.squeeze(self.image).numpy()
+                reconstructed_image = tf.squeeze(reconstructed_image).numpy()
 
-plt.subplot(2, 6, 2)
-plt.title("Reconstructed Image")
-plt.imshow(reconstructed_image)
-plt.axis('off')
+                # Assert that the original and reconstructed images are equal within epsilon tolerance
+                np.testing.assert_allclose(original_image, reconstructed_image, rtol=0, atol=1e-16, err_msg=f"The original and reconstructed images are not equal within the tolerance for padding={padding} and overlap={'Yes' if overlap else 'No'}.")
 
-# Plot the first 10 patches
-for i in range(10):
-    plt.subplot(2, 6, i + 3)
-    plt.title(f"Patch {i + 1}")
-    plt.imshow(first_10_patches[i])
-    plt.axis('off')
+    def test_image_display(self):
+        for padding in ['VALID', 'SAME']:
+            for overlap in [True, False]:
+                strides = 2 if overlap else self.patch_size
 
-plt.show()
+                logging.info(f"Displaying images for padding={padding}, overlap={'Yes' if overlap else 'No'}")
 
+                # Unfold the image into patches
+                patches = unfold(self.image, self.patch_size, strides, padding=padding)
 
+                # Fold the patches back into the original image
+                reconstructed_image = fold(patches, tf.keras.backend.int_shape(self.image)[1:3], self.patch_size, strides, padding=padding)
+
+                # Convert back to the original scale (0-255) for visualization
+                original_image = tf.squeeze(self.image).numpy()
+                original_image = (original_image * 255).astype(np.uint8)
+
+                reconstructed_image = tf.squeeze(reconstructed_image)
+                reconstructed_image = (reconstructed_image * 255).numpy().astype(np.uint8)
+
+                # Plot the original and reconstructed images
+                plt.figure(figsize=(8, 4))
+
+                plt.subplot(1, 2, 1)
+                plt.title("Original Image")
+                plt.imshow(original_image)
+                plt.axis('off')
+
+                plt.subplot(1, 2, 2)
+                plt.title("Reconstructed Image")
+                plt.imshow(reconstructed_image)
+                plt.axis('off')
+
+                plt.show()
+
+if __name__ == '__main__':
+    unittest.main()
