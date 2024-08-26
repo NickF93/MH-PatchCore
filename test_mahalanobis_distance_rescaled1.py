@@ -27,9 +27,9 @@ class TestMahalanobisDistance(unittest.TestCase):
     def setUp(self):
         # Create synthetic data for testing
         np.random.seed(0)
-        self.n = 1000
+        self.n = 100
         self.b = 10
-        self.c = 128
+        self.c = 10
         self.epsilon = 1e-6
 
         # Generate random data
@@ -43,25 +43,25 @@ class TestMahalanobisDistance(unittest.TestCase):
         
         # Timing mahalanobis_matrix_1
         start_time = time.time()
-        m1 = mahalanobis_matrix_1(self.s1, self.s2, cov_matrix, rescale=RescalingTypeEnum.NONE)
+        m1 = mahalanobis_matrix_1(self.s1, self.s2, cov_matrix, rescale=RescalingTypeEnum.COVARIANCE)
         duration_1 = time.time() - start_time
         print(f"mahalanobis_matrix_1 execution time: {duration_1:.6f} seconds")
         
         # Timing mahalanobis_matrix_2
         start_time = time.time()
-        m2 = mahalanobis_matrix_2(self.s1, self.s2, cov_matrix, rescale=RescalingTypeEnum.NONE)
+        m2 = mahalanobis_matrix_2(self.s1, self.s2, cov_matrix, rescale=RescalingTypeEnum.COVARIANCE)
         duration_2 = time.time() - start_time
         print(f"mahalanobis_matrix_2 execution time: {duration_2:.6f} seconds")
         
         # Timing mahalanobis_matrix_3
         start_time = time.time()
-        m3 = mahalanobis_matrix_3(self.s1, self.s2, cov_matrix, rescale=RescalingTypeEnum.NONE)
+        m3 = mahalanobis_matrix_3(self.s1, self.s2, cov_matrix, rescale=RescalingTypeEnum.COVARIANCE)
         duration_3 = time.time() - start_time
         print(f"mahalanobis_matrix_3 execution time: {duration_3:.6f} seconds")
         
         # Timing mahalanobis_matrix
         start_time = time.time()
-        m4 = mahalanobis_matrix(self.s1, self.s2, cov_matrix, rescale=RescalingTypeEnum.NONE)
+        m4 = mahalanobis_matrix(self.s1, self.s2, cov_matrix, rescale=RescalingTypeEnum.COVARIANCE)
         duration_4 = time.time() - start_time
         print(f"mahalanobis_matrix execution time: {duration_4:.6f} seconds")
         

@@ -520,6 +520,35 @@ class OnlineCovarianceM5(OnlineCovarianceAbstract):
         """
         return self.M2 / (self.n - 1) if self.n > 1 else self.M2
 
+class OnlineMeanStd:
+    def __init__(self, num_features):
+        # Initialize the count, mean, and M2 (sum of squares of differences from the current mean)
+        self.num_features: tf.Tensor = tf.cast(num_features, tf.int64)
+        self.n: tf.Variable = tf.Variable(0, dtype=tf.float64, trainable=False)
+        self.mean: tf.Variable = tf.Variable(tf.zeros(num_features, dtype=tf.float64), dtype=tf.float64)
+        self.M2: tf.Variable = tf.Variable(tf.zeros((num_features, num_features), dtype=tf.float64), dtype=tf.float64)
+
+    def update(self, batch):
+        # Cast the input batch to float64
+        batch = tf.cast(batch, tf.float64)
+        batch_size = tf.cast(tf.shape(batch)[0], tf.float64)
+        
+        # Calculate new mean and M2
+        delta = tf.reduce_mean(batch, axis=0) - self.mean
+        new_mean = self.mean + delta * batch_size / (self.n + batch_size)
+        new_M2 = self.M2 + tf.reduce_sum((batch - new_mean) * (batch - self.mean), axis=0)
+        new_n = self.n + batch_size
+        
+        # Update the variables
+        self.n.assign(new_n)
+        self.mean.assign(new_mean)
+        self.M2.assign(new_M2)
+
+    def finalize(self):
+        # Compute the final mean and variance
+        variance = self.M2 / self.n
+        stddev = tf.sqrt(variance)
+        return self.mean, stddev
 
 # Alias for the OnlineCovarianceM1 class
 OnlineCovariance = OnlineCovarianceM1

@@ -8,7 +8,7 @@ class RescalingTypeEnum(enum.Enum):
     CHOLESKY    = 2
 
 def rescale_factor(cov_matrix: tf.Tensor) -> tf.Tensor:
-    return tf.cast(tf.reduce_max(tf.linalg.eigvals(cov_matrix)), tf.float64)
+    return tf.cast(tf.reduce_max(tf.linalg.eigvalsh(cov_matrix)), tf.float64)
 
 def inv(matrix: tf.Tensor) -> tf.Tensor:
     return tf.linalg.inv(matrix)
@@ -65,56 +65,71 @@ def mahalanobis_matrix_1(s1: tf.Tensor, s2: tf.Tensor, cov_matrix: tf.Tensor, re
     C_inv = tf.linalg.inv(C)
 
     # Step 2: Compute the Mahalanobis distance between each vector in S1 and each vector in S2
-    dist_matrix_1 = tf.zeros([n, b], dtype=tf.float64)
+    dist_matrix = tf.zeros([n, b], dtype=tf.float64)
 
     for i in range(n):
         for j in range(b):
             diff = s1[i] - s2[j]
             dist = tf.sqrt(tf.matmul(tf.matmul(diff[tf.newaxis, :], C_inv), diff[:, tf.newaxis]))
-            dist_matrix_1 = tf.tensor_scatter_nd_update(dist_matrix_1, [[i, j]], [dist[0][0]])
+            dist_matrix = tf.tensor_scatter_nd_update(dist_matrix, [[i, j]], [dist[0][0]])
 
-    return dist_matrix_1
+    if rescale == RescalingTypeEnum.NONE:
+        return dist_matrix
+    elif rescale == RescalingTypeEnum.COVARIANCE:
+        return tf.math.divide_no_nan(dist_matrix, tf.math.sqrt(rescale_factor))
+    elif rescale == RescalingTypeEnum.CHOLESKY:
+        raise ValueError('CHOLESKY is not applicable here')
 
 def mahalanobis_matrix_2(s1: tf.Tensor, s2: tf.Tensor, cov_matrix: tf.Tensor, rescale: RescalingTypeEnum = RescalingTypeEnum.NONE) -> tf.Tensor:
     C, s1, s2, c, n, b, rescale_factor = format_s1s2C(s1, s2, cov_matrix, rescale)
 
     # Step 1: Compute the Cholesky decomposition of C
-    L, rescale_factor, invL = cholesky(cov_matrix, rescale_factor, rescale)
+    L, rescale_factor, invL = cholesky(C, rescale_factor, rescale)
 
     # Step 2: Compute the Mahalanobis distance using triangular solve
-    dist_matrix_2 = tf.zeros([n, b], dtype=tf.float64)
+    dist_matrix = tf.zeros([n, b], dtype=tf.float64)
 
     for i in range(n):
         for j in range(b):
             diff = s1[i] - s2[j]
             w = tf.linalg.triangular_solve(L, diff[:, tf.newaxis], lower=True)
-            dist_matrix_2 = tf.tensor_scatter_nd_update(dist_matrix_2, [[i, j]], [tf.sqrt(tf.reduce_sum(w ** 2))])
+            dist_matrix = tf.tensor_scatter_nd_update(dist_matrix, [[i, j]], [tf.sqrt(tf.reduce_sum(w ** 2))])
 
-    return dist_matrix_2
+    if rescale == RescalingTypeEnum.NONE:
+        return dist_matrix
+    elif rescale == RescalingTypeEnum.COVARIANCE:
+        return tf.math.divide_no_nan(dist_matrix, tf.math.sqrt(rescale_factor))
+    elif rescale == RescalingTypeEnum.CHOLESKY:
+        return tf.math.divide_no_nan(dist_matrix, rescale_factor)
 
 def mahalanobis_matrix_3(s1: tf.Tensor, s2: tf.Tensor, cov_matrix: tf.Tensor, rescale: RescalingTypeEnum = RescalingTypeEnum.NONE) -> tf.Tensor:
     C, s1, s2, c, n, b, rescale_factor = format_s1s2C(s1, s2, cov_matrix, rescale)
 
     # Step 1: Compute the inverse of the Cholesky decomposition matrix L
-    L, rescale_factor, invL = cholesky(cov_matrix, rescale_factor, rescale)
+    L, rescale_factor, invL = cholesky(C, rescale_factor, rescale)
 
     # Step 2: Compute the Mahalanobis distance using L and L_inv
-    dist_matrix_3 = tf.zeros([n, b], dtype=tf.float64)
+    dist_matrix = tf.zeros([n, b], dtype=tf.float64)
 
     for i in range(n):
         for j in range(b):
             diff = s1[i] - s2[j]
             u = tf.matmul(invL, diff[:, tf.newaxis])
-            dist_matrix_3 = tf.tensor_scatter_nd_update(dist_matrix_3, [[i, j]], [tf.sqrt(tf.reduce_sum(u ** 2))])
+            dist_matrix = tf.tensor_scatter_nd_update(dist_matrix, [[i, j]], [tf.sqrt(tf.reduce_sum(u ** 2))])
 
-    return dist_matrix_3
+    if rescale == RescalingTypeEnum.NONE:
+        return dist_matrix
+    elif rescale == RescalingTypeEnum.COVARIANCE:
+        return tf.math.divide_no_nan(dist_matrix, tf.math.sqrt(rescale_factor))
+    elif rescale == RescalingTypeEnum.CHOLESKY:
+        return tf.math.divide_no_nan(dist_matrix, rescale_factor)
 
 def mahalanobis_matrix_3_opt(s1: tf.Tensor, s2: tf.Tensor, cov_matrix: tf.Tensor, rescale: RescalingTypeEnum = RescalingTypeEnum.NONE) -> tf.Tensor:
     # Assuming format_s1s2C and cholesky are utility functions that return formatted inputs.
     C, s1, s2, c, n, b, rescale_factor = format_s1s2C(s1, s2, cov_matrix, rescale)
 
     # Step 1: Compute the Cholesky decomposition of the covariance matrix and its inverse
-    L, rescale_factor, invL = cholesky(cov_matrix, rescale_factor, rescale)
+    L, rescale_factor, invL = cholesky(C, rescale_factor, rescale)
 
     # Step 2: Compute the difference matrix between s1 and s2 vectors
     # Shape of diff_matrix: [n, b, c]
@@ -129,9 +144,14 @@ def mahalanobis_matrix_3_opt(s1: tf.Tensor, s2: tf.Tensor, cov_matrix: tf.Tensor
     u_matrix = tf.einsum('ij,nkj->nki', invL_T, diff_matrix)  # Shape [n, b, c]
 
     # Step 4: Compute the Mahalanobis distance using the norm of the u_matrix
-    dist_matrix_3 = tf.sqrt(tf.reduce_sum(tf.square(u_matrix), axis=-1))  # Shape [n, b]
+    dist_matrix = tf.sqrt(tf.reduce_sum(tf.square(u_matrix), axis=-1))  # Shape [n, b]
 
-    return dist_matrix_3
+    if rescale == RescalingTypeEnum.NONE:
+        return dist_matrix
+    elif rescale == RescalingTypeEnum.COVARIANCE:
+        return tf.math.divide_no_nan(dist_matrix, tf.math.sqrt(rescale_factor))
+    elif rescale == RescalingTypeEnum.CHOLESKY:
+        return tf.math.divide_no_nan(dist_matrix, rescale_factor)
 
 #@tf.function(reduce_retracing=True)
 def mahalanobis_tf(batch: tf.Tensor, cov_matrix: tf.Tensor, rescaling_type: RescalingTypeEnum = RescalingTypeEnum.NONE, rescale_back: bool = True) -> tf.Tensor:
