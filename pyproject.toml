@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools==80.9.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mh-patchcore"
+version = "0.1.0"
+description = "Mahalanobis PatchCore runtime for visual anomaly detection"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Niccolo Ferrari" },
+  { name = "Oligert Osmani" },
+]
+dependencies = [
+  "click==8.3.1",
+  "faiss-cpu==1.13.2",
+  "joblib==1.5.3",
+  "matplotlib==3.10.0",
+  "numpy==2.2.2",
+  "opencv-python==4.13.0.92",
+  "pandas==2.2.3",
+  "psutil==5.9.8",
+  "PyYAML==6.0.2",
+  "scikit-image==0.26.0",
+  "scikit-learn==1.8.0",
+  "scipy==1.14.1",
+  "timm==1.0.24",
+  "torch==2.10.0",
+  "torchvision==0.25.0",
+  "tqdm==4.67.1",
+]
+
+[tool.setuptools.packages.find]
+include = ["mhpc*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
