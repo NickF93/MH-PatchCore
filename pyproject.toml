@@ -7,7 +7,7 @@ name = "mh-patchcore"
 version = "0.1.0"
 description = "Mahalanobis PatchCore runtime for visual anomaly detection"
 readme = "README.md"
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11,<3.13"
 license = { file = "LICENSE" }
 authors = [
   { name = "Niccolo Ferrari" },
@@ -38,3 +38,4 @@ include = ["mhpc*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+pythonpath = ["."]
