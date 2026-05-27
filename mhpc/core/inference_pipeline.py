@@ -1,4 +1,4 @@
-"""Generic INFERENCE pipeline orchestrator with typed output contracts."""
+"""Generic INFERENCE pipeline coordinator with typed output contracts."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from .pipeline_stage_contract import (
 
 
 class InferencePipeline:
-    """Host-owned INFERENCE orchestrator using canonical stage contracts."""
+    """Host-owned INFERENCE coordinator using canonical stage contracts."""
 
     def __init__(self, model: Any) -> None:
         self._model = model

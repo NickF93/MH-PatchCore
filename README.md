@@ -60,6 +60,46 @@ bash scripts/run_all_experiments.sh --all --continue
 
 Results are written under `results/mvtec/<experiment>/<timestamp>/`.
 
+## Exporting Teacher Artifacts
+
+TinyEdge student training needs a fitted PatchCore teacher, its memory bank,
+and frozen replay features from the normal training split. Generate those files
+with the teacher artifact config:
+
+```bash
+python run_mhpc.py --config configs/mvtec/teacher/mvtec_streaming_mh_patchcore_teacher_artifacts.yaml
+```
+
+The export uses the same MVTec layout described above and writes everything
+under the run directory:
+
+```text
+results/mvtec/mvtec_streaming_mh_patchcore_teacher_artifacts/<timestamp>/artifacts/
+  bottle/
+    model/
+      checkpoint/
+        manifest.json
+        ...
+      memory_bank/
+        memory_bank.h5
+    train/
+      transform/
+      distance/
+      scoring/
+    test/
+      transform/
+      distance/
+      scoring/
+```
+
+The `model/checkpoint` folder stores the fitted teacher checkpoint and a small
+manifest. `model/memory_bank/memory_bank.h5` stores the fitted reference bank.
+The `train` and `test` replay folders store selected slot-boundary payloads
+grouped by sample group, with matching metadata JSONL files.
+
+These payloads are generated runtime artifacts. Keep them local or publish them
+through your own release process; they are not tracked in this repository.
+
 ## Tests
 
 Run the focused runtime suite with:
