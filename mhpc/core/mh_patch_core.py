@@ -25,7 +25,10 @@ from ..util.param_binding import normalize_training_contract
 from .plugins.preprocess.contracts import PreprocessPlugin
 from .plugins.proj1.contracts import Projector1Plugin
 from .plugins.proj2.contracts import Projector2Plugin
-from .predict_engine import PredictEngine as _PredictEngine
+from .predict_engine import (
+    PredictEngine as _PredictEngine,
+    SlotInferenceBatchOutput,
+)
 from .plugins.scoring.contracts import ScoringPlugin, ScoringSegmentor
 from .plugins.transform.contracts import TransformPlugin
 from .inference_pipeline import InferencePipeline as _InferencePipeline
@@ -528,6 +531,17 @@ class MHPatchCore(_torch.nn.Module):
 
     def infer_batch(self, images: _torch.Tensor) -> InferenceBatchOutput:
         return self._inference_pipeline.infer_batch(images)
+
+    def infer_batch_with_slot_outputs(
+        self,
+        images: _torch.Tensor,
+        *,
+        selected_slots: _T.Iterable[str],
+    ) -> SlotInferenceBatchOutput:
+        return self._predict_engine.predict_batch_with_slot_outputs(
+            images,
+            selected_slots=selected_slots,
+        )
 
     def save_to_path(self, save_path: str, prepend: str = "") -> None:
         self._checkpoint_engine.save_to_path(save_path, prepend)

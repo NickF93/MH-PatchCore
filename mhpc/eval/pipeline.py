@@ -20,6 +20,7 @@ from mhpc.eval.data_loading import (
     build_dataset_loaders,
     resolve_dataset_plan,
 )
+from mhpc.eval.frozen_replay import run_frozen_test_eval, run_frozen_train_replay
 from mhpc.eval.metrics import (
     compute_binary_metrics,
     compute_image_aupro,
@@ -49,6 +50,13 @@ from mhpc.eval.profiling import (
 from mhpc.eval.reproducibility import (
     apply_reproducibility_preamble,
     build_reproducibility_preamble,
+)
+from mhpc.eval.teacher_export import (
+    save_teacher_checkpoint,
+    save_teacher_memory_bank_artifact,
+    teacher_checkpoint_enabled,
+    teacher_memory_bank_enabled,
+    teacher_replay_enabled,
 )
 from mhpc.util.param_binding import build_plugin_bind_context
 from mhpc.util.progress import (
@@ -121,6 +129,78 @@ def _save_dataset_artifacts(
         artifacts_root=artifacts_root,
         denormalize_image_fn=denormalize_image,
         save_prediction_artifacts_fn=save_prediction_artifacts,
+    )
+
+
+def _save_teacher_checkpoint(
+    *,
+    config: RunConfig,
+    model: MHPatchCore,
+    dataset_name: str,
+    train_loader,
+    artifacts_root,
+) -> None:
+    """Compatibility wrapper preserving teacher-checkpoint monkeypatch seams."""
+    save_teacher_checkpoint(
+        config=config,
+        model=model,
+        dataset_name=dataset_name,
+        train_loader=train_loader,
+        artifacts_root=artifacts_root,
+    )
+
+
+def _save_teacher_memory_bank_artifact(
+    *,
+    config: RunConfig,
+    model: MHPatchCore,
+    dataset_name: str,
+    train_loader,
+    artifacts_root,
+) -> None:
+    """Compatibility wrapper preserving memory-bank artifact monkeypatch seams."""
+    save_teacher_memory_bank_artifact(
+        config=config,
+        model=model,
+        dataset_name=dataset_name,
+        train_loader=train_loader,
+        artifacts_root=artifacts_root,
+    )
+
+
+def _run_frozen_train_replay(
+    *,
+    config: RunConfig,
+    model: MHPatchCore,
+    dataset_name: str,
+    train_loader,
+    artifacts_root,
+) -> None:
+    """Compatibility wrapper preserving frozen-replay monkeypatch seams."""
+    run_frozen_train_replay(
+        config=config,
+        model=model,
+        dataset_name=dataset_name,
+        train_loader=train_loader,
+        artifacts_root=artifacts_root,
+    )
+
+
+def _run_frozen_test_eval(
+    *,
+    config: RunConfig,
+    model: MHPatchCore,
+    dataset_name: str,
+    test_loader,
+    artifacts_root,
+) -> None:
+    """Compatibility wrapper preserving frozen test-eval monkeypatch seams."""
+    run_frozen_test_eval(
+        config=config,
+        model=model,
+        dataset_name=dataset_name,
+        test_loader=test_loader,
+        artifacts_root=artifacts_root,
     )
 
 
@@ -238,6 +318,60 @@ def run_experiment(config: RunConfig) -> pd.DataFrame:
                 with _profile_phase(profiler, "fit"):
                     model.fit(train_loader)
 
+                if teacher_checkpoint_enabled(config):
+                    dataset_iterator.set_postfix(
+                        make_progress_postfix(
+                            batch=dataset_idx,
+                            total=datasets_total,
+                            phase=f"{dataset_name}:teacher_checkpoint",
+                        ),
+                        refresh=False,
+                    )
+                    with _profile_phase(profiler, "teacher_checkpoint"):
+                        _save_teacher_checkpoint(
+                            config=config,
+                            model=model,
+                            dataset_name=dataset_name,
+                            train_loader=train_loader,
+                            artifacts_root=artifacts_root,
+                        )
+
+                if teacher_memory_bank_enabled(config):
+                    dataset_iterator.set_postfix(
+                        make_progress_postfix(
+                            batch=dataset_idx,
+                            total=datasets_total,
+                            phase=f"{dataset_name}:memory_bank_artifact",
+                        ),
+                        refresh=False,
+                    )
+                    with _profile_phase(profiler, "memory_bank_artifact"):
+                        _save_teacher_memory_bank_artifact(
+                            config=config,
+                            model=model,
+                            dataset_name=dataset_name,
+                            train_loader=train_loader,
+                            artifacts_root=artifacts_root,
+                        )
+
+                if teacher_replay_enabled(config):
+                    dataset_iterator.set_postfix(
+                        make_progress_postfix(
+                            batch=dataset_idx,
+                            total=datasets_total,
+                            phase=f"{dataset_name}:teacher_replay",
+                        ),
+                        refresh=False,
+                    )
+                    with _profile_phase(profiler, "teacher_replay"):
+                        _run_frozen_train_replay(
+                            config=config,
+                            model=model,
+                            dataset_name=dataset_name,
+                            train_loader=train_loader,
+                            artifacts_root=artifacts_root,
+                        )
+
                 dataset_iterator.set_postfix(
                     make_progress_postfix(
                         batch=dataset_idx,
@@ -272,6 +406,24 @@ def run_experiment(config: RunConfig) -> pd.DataFrame:
                 )
                 with _profile_phase(profiler, "infer"):
                     prediction = model.infer_dataloader(test_loader)
+
+                if teacher_replay_enabled(config):
+                    dataset_iterator.set_postfix(
+                        make_progress_postfix(
+                            batch=dataset_idx,
+                            total=datasets_total,
+                            phase=f"{dataset_name}:teacher_eval",
+                        ),
+                        refresh=False,
+                    )
+                    with _profile_phase(profiler, "teacher_eval"):
+                        _run_frozen_test_eval(
+                            config=config,
+                            model=model,
+                            dataset_name=dataset_name,
+                            test_loader=test_loader,
+                            artifacts_root=artifacts_root,
+                        )
 
                 image_scores_arr = np.asarray(prediction.image_scores, dtype=np.float64)
                 image_labels_arr = np.asarray(prediction.image_labels, dtype=np.int32)

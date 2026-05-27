@@ -33,6 +33,7 @@ NON_SLOT_GLOBAL_PARAMETERS: tuple[NonSlotGlobalParameter, ...] = (
     NonSlotGlobalParameter("pipeline.training.fit_epochs"),
     NonSlotGlobalParameter("evaluation"),
     NonSlotGlobalParameter("artifacts"),
+    NonSlotGlobalParameter("teacher_export"),
     NonSlotGlobalParameter("render"),
 )
 

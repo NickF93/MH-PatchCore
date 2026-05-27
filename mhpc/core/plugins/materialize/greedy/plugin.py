@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ..common import materialize_global_nn_bank
+import numpy as np
+from scipy.spatial import distance as scipy_distance  # type: ignore[import-untyped]
+
+from mhpc.core.plugins.locality_state_contract import StructuredGlobalNNBank
+
 from ..contracts import (
     MaterializationBindContextLike,
     MaterializationInputState,
@@ -84,12 +88,67 @@ class GreedyMaterializationPlugin(MaterializationPlugin):
     ) -> tuple[MemoryBankPayload, dict[str, object]]:
         del locality_context
         return (
-            materialize_global_nn_bank(
+            _materialize_global_nn_bank(
                 state.get_centroids(),
                 compute_self_distances=bool(
                     getattr(self, "_compute_self_distances", False)
                 ),
-                plugin_name="greedy",
             ),
             state.export_state(),
         )
+
+
+def _normalize_global_ndarray_bank(memory_bank: MemoryBankPayload) -> np.ndarray:
+    if not isinstance(memory_bank, np.ndarray):
+        raise ValueError(
+            "materialize plugin 'greedy' supports compute_self_distances only for "
+            "global ndarray banks."
+        )
+    bank_np = np.ascontiguousarray(np.asarray(memory_bank, dtype=np.float32))
+    if bank_np.ndim != 2:
+        raise ValueError(
+            "materialize plugin 'greedy' requires a 2D global ndarray bank to "
+            f"compute self_distances; got shape={bank_np.shape}."
+        )
+    if int(bank_np.shape[0]) < 2 or int(bank_np.shape[1]) <= 0:
+        raise ValueError(
+            "materialize plugin 'greedy' requires bank shape [N, D] with N >= 2 "
+            f"and D > 0 to compute self_distances; got shape={bank_np.shape}."
+        )
+    if not np.all(np.isfinite(bank_np)):
+        raise ValueError(
+            "materialize plugin 'greedy' requires finite bank values to compute "
+            "self_distances."
+        )
+    return bank_np
+
+
+def _compute_global_nn_self_distances(memory_bank: MemoryBankPayload) -> np.ndarray:
+    bank_np = _normalize_global_ndarray_bank(memory_bank)
+    pairwise_distances = np.asarray(
+        scipy_distance.cdist(
+            np.asarray(bank_np, dtype=np.float64),
+            np.asarray(bank_np, dtype=np.float64),
+            metric="euclidean",
+        ),
+        dtype=np.float64,
+    )
+    np.fill_diagonal(pairwise_distances, np.inf)
+    self_distances = np.min(pairwise_distances, axis=1).astype(np.float64, copy=False)
+    if not np.all(np.isfinite(self_distances)) or np.any(self_distances < 0.0):
+        raise RuntimeError("materialize plugin 'greedy' produced invalid self_distances.")
+    return self_distances
+
+
+def _materialize_global_nn_bank(
+    memory_bank: MemoryBankPayload,
+    *,
+    compute_self_distances: bool,
+) -> MemoryBankPayload:
+    if not compute_self_distances:
+        return memory_bank
+    bank_np = _normalize_global_ndarray_bank(memory_bank)
+    return StructuredGlobalNNBank(
+        features=bank_np,
+        self_distances=_compute_global_nn_self_distances(bank_np),
+    )

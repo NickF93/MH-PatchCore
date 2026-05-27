@@ -16,6 +16,7 @@ authors = [
 dependencies = [
   "click==8.3.1",
   "faiss-cpu==1.13.2",
+  "h5py==3.12.1",
   "joblib==1.5.3",
   "matplotlib==3.10.0",
   "numpy==2.2.2",

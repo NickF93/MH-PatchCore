@@ -100,7 +100,7 @@ class MVTecDataset(Dataset):
     def __len__(self) -> int:
         return len(self.img_paths)
 
-    def __getitem__(self, idx: int) -> tuple[Tensor, Tensor]:
+    def __getitem__(self, idx: int) -> dict[str, Any]:
         img_path = self.img_paths[idx]
         image_bgr = cv2.imread(str(img_path))
         if image_bgr is None:
@@ -146,7 +146,18 @@ class MVTecDataset(Dataset):
 
         mask_bin = (mask_transformed_opt > 0).to(dtype=self.dtype)
         img_out = img_transformed.to(dtype=self.dtype)
-        return img_out, mask_bin
+        return {
+            "image": img_out,
+            "mask": mask_bin,
+            "metadata": {
+                "dataset_name": self.root.name,
+                "dataset_root": str(self.root),
+                "split": self.split,
+                "sample_group": rel.parts[0],
+                "sample_path": rel.as_posix(),
+                "sample_index": int(idx),
+            },
+        }
 
 
 def create_dataloaders(
