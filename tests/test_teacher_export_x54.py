@@ -715,22 +715,22 @@ def test_x54_run_experiment_saves_teacher_checkpoint_after_fit(
     )
     monkeypatch.setattr(
         pipeline_module,
-        "_save_teacher_checkpoint",
+        "save_teacher_checkpoint",
         lambda **_kwargs: events.append("checkpoint"),
     )
     monkeypatch.setattr(
         pipeline_module,
-        "_save_teacher_memory_bank_artifact",
+        "save_teacher_memory_bank_artifact",
         lambda **_kwargs: events.append("memory_bank"),
     )
     monkeypatch.setattr(
         pipeline_module,
-        "_run_frozen_train_replay",
+        "run_frozen_train_replay",
         lambda **_kwargs: events.append("replay"),
     )
     monkeypatch.setattr(
         pipeline_module,
-        "_run_frozen_test_eval",
+        "run_frozen_test_eval",
         lambda **_kwargs: events.append("test_eval"),
     )
 

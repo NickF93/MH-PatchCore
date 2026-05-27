@@ -83,7 +83,7 @@ def _build_model(
     device: torch.device,
     plugin_bundle=None,
 ):
-    """Compatibility wrapper preserving monkeypatch seams in tests."""
+    """Build the runtime model through the pipeline-owned construction hook."""
     return _build_model_impl(
         config=config,
         device=device,
@@ -97,7 +97,7 @@ def _build_calibration_train_loader(
     dataset_name: str,
     dataloader_plugin: DataLoaderPlugin,
 ):
-    """Compatibility wrapper preserving helper monkeypatch seam."""
+    """Build the calibration loader through the pipeline-owned helper hook."""
     return _build_calibration_train_loader_impl(
         config=config,
         dataset_name=dataset_name,
@@ -116,7 +116,7 @@ def _save_dataset_artifacts(
     overlay_alpha: float,
     artifacts_root,
 ) -> None:
-    """Compatibility wrapper preserving artifact-writer monkeypatch seam."""
+    """Save rendered sample artifacts through the pipeline-owned writer hook."""
     _save_dataset_artifacts_impl(
         dataset_name=dataset_name,
         test_loader=test_loader,
@@ -129,78 +129,6 @@ def _save_dataset_artifacts(
         artifacts_root=artifacts_root,
         denormalize_image_fn=denormalize_image,
         save_prediction_artifacts_fn=save_prediction_artifacts,
-    )
-
-
-def _save_teacher_checkpoint(
-    *,
-    config: RunConfig,
-    model: MHPatchCore,
-    dataset_name: str,
-    train_loader,
-    artifacts_root,
-) -> None:
-    """Compatibility wrapper preserving teacher-checkpoint monkeypatch seams."""
-    save_teacher_checkpoint(
-        config=config,
-        model=model,
-        dataset_name=dataset_name,
-        train_loader=train_loader,
-        artifacts_root=artifacts_root,
-    )
-
-
-def _save_teacher_memory_bank_artifact(
-    *,
-    config: RunConfig,
-    model: MHPatchCore,
-    dataset_name: str,
-    train_loader,
-    artifacts_root,
-) -> None:
-    """Compatibility wrapper preserving memory-bank artifact monkeypatch seams."""
-    save_teacher_memory_bank_artifact(
-        config=config,
-        model=model,
-        dataset_name=dataset_name,
-        train_loader=train_loader,
-        artifacts_root=artifacts_root,
-    )
-
-
-def _run_frozen_train_replay(
-    *,
-    config: RunConfig,
-    model: MHPatchCore,
-    dataset_name: str,
-    train_loader,
-    artifacts_root,
-) -> None:
-    """Compatibility wrapper preserving frozen-replay monkeypatch seams."""
-    run_frozen_train_replay(
-        config=config,
-        model=model,
-        dataset_name=dataset_name,
-        train_loader=train_loader,
-        artifacts_root=artifacts_root,
-    )
-
-
-def _run_frozen_test_eval(
-    *,
-    config: RunConfig,
-    model: MHPatchCore,
-    dataset_name: str,
-    test_loader,
-    artifacts_root,
-) -> None:
-    """Compatibility wrapper preserving frozen test-eval monkeypatch seams."""
-    run_frozen_test_eval(
-        config=config,
-        model=model,
-        dataset_name=dataset_name,
-        test_loader=test_loader,
-        artifacts_root=artifacts_root,
     )
 
 
@@ -328,7 +256,7 @@ def run_experiment(config: RunConfig) -> pd.DataFrame:
                         refresh=False,
                     )
                     with _profile_phase(profiler, "teacher_checkpoint"):
-                        _save_teacher_checkpoint(
+                        save_teacher_checkpoint(
                             config=config,
                             model=model,
                             dataset_name=dataset_name,
@@ -346,7 +274,7 @@ def run_experiment(config: RunConfig) -> pd.DataFrame:
                         refresh=False,
                     )
                     with _profile_phase(profiler, "memory_bank_artifact"):
-                        _save_teacher_memory_bank_artifact(
+                        save_teacher_memory_bank_artifact(
                             config=config,
                             model=model,
                             dataset_name=dataset_name,
@@ -364,7 +292,7 @@ def run_experiment(config: RunConfig) -> pd.DataFrame:
                         refresh=False,
                     )
                     with _profile_phase(profiler, "teacher_replay"):
-                        _run_frozen_train_replay(
+                        run_frozen_train_replay(
                             config=config,
                             model=model,
                             dataset_name=dataset_name,
@@ -417,7 +345,7 @@ def run_experiment(config: RunConfig) -> pd.DataFrame:
                         refresh=False,
                     )
                     with _profile_phase(profiler, "teacher_eval"):
-                        _run_frozen_test_eval(
+                        run_frozen_test_eval(
                             config=config,
                             model=model,
                             dataset_name=dataset_name,
