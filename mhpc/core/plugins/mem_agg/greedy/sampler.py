@@ -11,7 +11,7 @@ import tqdm.auto as _tqdm  # type: ignore[import-untyped]
 
 
 def _create_progress_bar(*args: object, **kwargs: object) -> Iterable[object]:
-    """Plugin-local tqdm wrapper preserving the legacy default rendering knobs."""
+    """Plugin-local tqdm wrapper with the default rendering knobs."""
     kwargs.setdefault("disable", False)
     kwargs.setdefault("leave", True)
     kwargs.setdefault("dynamic_ncols", True)

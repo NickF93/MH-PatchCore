@@ -1,8 +1,8 @@
 """Canonical slot-parameter ownership primitives (MS-108).
 
 This module intentionally exposes only canonical slot metadata and explicitly
-allowed non-slot globals. Legacy slot-path ownership maps and migration
-placement discriminators were removed in MS-108.
+allowed non-slot globals. Slot-path ownership maps and migration placement
+discriminators were removed in MS-108.
 """
 
 from __future__ import annotations

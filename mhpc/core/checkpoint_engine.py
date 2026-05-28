@@ -38,7 +38,7 @@ class CheckpointEngine:
         return value
 
     def _build_stage_state_checkpoint_payload(self) -> dict[str, dict[str, _T.Any]]:
-        """Build stage-owned checkpoint payload with no legacy top-level fields."""
+        """Build the stage-owned checkpoint payload with one top-level state map."""
         return build_slot_state_checkpoint_payload(
             stage_names=self._model._stage_owned_state.keys(),
             stage_slot_for=self._model._stage_state_slot,
@@ -66,7 +66,7 @@ class CheckpointEngine:
         )
         if unsupported_top_level:
             raise ValueError(
-                "Legacy checkpoint format is not supported. "
+                "Unsupported checkpoint format. "
                 "Found unsupported top-level checkpoint keys: "
                 f"{', '.join(unsupported_top_level)}"
             )

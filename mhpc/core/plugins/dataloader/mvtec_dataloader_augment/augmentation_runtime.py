@@ -191,7 +191,7 @@ def apply_joint_transform(
     mask: tv_tensors.Mask | Tensor,
     deterministic_seed: int | None = None,
 ) -> tuple[Tensor, Tensor]:
-    """Backward-compatible helper for image+mask transform calls."""
+    """Apply one joint image+mask transform call."""
     augmentor = JointAugmentor(transform=transform)
     image_out, mask_out = augmentor(
         image=image,

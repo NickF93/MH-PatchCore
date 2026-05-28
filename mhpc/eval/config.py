@@ -274,7 +274,7 @@ def load_run_config(config_path: str | Path) -> RunConfig:
     pipeline_cfg = _require_mapping(raw_obj, "pipeline")
     training_cfg = _parse_pipeline_training(pipeline_cfg)
     slot_params_by_stage = _parse_pipeline_slot_params(pipeline_cfg)
-    _reject_legacy_slot_owned_parameter_surfaces(raw_obj)
+    _reject_removed_slot_owned_parameter_surfaces(raw_obj)
 
     experiment_cfg = _parse_experiment(_require_mapping(raw_obj, "experiment"))
     paths_cfg = _parse_paths(_require_mapping(raw_obj, "paths"))
@@ -315,20 +315,20 @@ def load_run_config(config_path: str | Path) -> RunConfig:
     )
 
 
-def _reject_legacy_slot_owned_parameter_surfaces(cfg: Mapping[str, Any]) -> None:
-    """Fail fast when legacy slot-owned keys appear outside slot params."""
-    forbidden_surface_paths = _collect_legacy_slot_owned_surface_paths(cfg)
+def _reject_removed_slot_owned_parameter_surfaces(cfg: Mapping[str, Any]) -> None:
+    """Fail fast when removed slot-owned keys appear outside slot params."""
+    forbidden_surface_paths = _collect_removed_slot_owned_surface_paths(cfg)
     if not forbidden_surface_paths:
         return
 
     forbidden_surface_path = forbidden_surface_paths[0]
     raise ValueError(
-        "Legacy slot-owned parameter key is not allowed outside "
+        "Removed slot-owned parameter key is not allowed outside "
         f"pipeline.slots.<slot>.params: {forbidden_surface_path}"
     )
 
 
-def _collect_legacy_slot_owned_surface_paths(
+def _collect_removed_slot_owned_surface_paths(
     cfg: Mapping[str, Any],
 ) -> tuple[str, ...]:
     paths: list[str] = []
@@ -497,7 +497,7 @@ def _parse_pipeline_slot_params(
             )
         if stage_name in _EXPLICIT_TRAINABLE_STAGES and "fit_epochs" in params_cfg:
             raise ValueError(
-                "Legacy slot fit_epochs is forbidden in pipeline.slots.<stage>.params; "
+                "Slot fit_epochs is not allowed in pipeline.slots.<stage>.params; "
                 f"use pipeline.training.fit_epochs.{stage_name}."
             )
         params_by_stage[stage_name] = params_cfg
@@ -854,7 +854,7 @@ def _parse_plugin_selection(
 
     if raw_cfg is not None:
         raise ValueError(
-            "Legacy top-level plugins selection block is forbidden. "
+            "Top-level plugins selection block is not supported. "
             "Use pipeline.slots.<slot>.{plugin,params} for all canonical stages."
         )
     if slots_cfg is None:

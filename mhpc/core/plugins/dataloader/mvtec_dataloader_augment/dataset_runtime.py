@@ -36,7 +36,7 @@ def apply_joint_transform(
     mask: tv_tensors.Mask | Tensor,
     deterministic_seed: int | None = None,
 ) -> tuple[Tensor, Tensor]:
-    """Backward-compatible re-export for joint image/mask transform call."""
+    """Apply the plugin-local joint image/mask transform."""
     return _apply_joint_transform_impl(
         transform=transform,
         image=image,
