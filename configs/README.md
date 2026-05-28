@@ -44,6 +44,10 @@ teacher_export:
 `materialize` are represented by the checkpoint and memory-bank artifacts
 instead of replay files.
 
+Replay files are written batch-major: each HDF5 row represents one source
+image. Patch-level payloads are flattened inside that image row before the file
+is split by sample group.
+
 Run the teacher export config with:
 
 ```bash

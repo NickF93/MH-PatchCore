@@ -412,12 +412,18 @@ class PredictEngine:
         batchsize = int(images.shape[0])
         with torch.no_grad():
             backbone_features = self._model._capture_embed_features(images)
-            capture_slot("backbone", _tensor_sequence_payload(backbone_features))
+            capture_slot(
+                "backbone",
+                _tensor_sequence_payload(backbone_features, batch_size=batchsize),
+            )
 
             patch_features, patch_shapes = self._model._patchify_and_align_features(
                 backbone_features
             )
-            capture_slot("patch_align", _tensor_sequence_payload(patch_features))
+            capture_slot(
+                "patch_align",
+                _tensor_sequence_payload(patch_features, batch_size=batchsize),
+            )
 
             projector_locality_context = build_locality_context_if_required(
                 batch_size=batchsize,
@@ -443,7 +449,10 @@ class PredictEngine:
                 features=patch_features,
                 forward_modules=self._model.forward_modules,
             )
-            capture_slot("preprocess", _tensor_payload(processed))
+            capture_slot(
+                "preprocess",
+                _batch_major_payload(_tensor_payload(processed), batchsize),
+            )
             processed = (
                 self._model._feature_agg_plugin.forward_embed_feature_aggregation(
                     features=processed,
@@ -476,22 +485,25 @@ class PredictEngine:
             )
 
             features_np = self._predict_reduce_features(_tensor_payload(processed))
-            capture_slot("feature_agg", np.asarray(features_np))
+            capture_slot(
+                "feature_agg",
+                _batch_major_payload(features_np, batchsize),
+            )
             features_np = self._predict_projector1_features(
                 features=features_np,
                 locality_context=projector_locality_context,
             )
-            capture_slot("proj1", np.asarray(features_np))
+            capture_slot("proj1", _batch_major_payload(features_np, batchsize))
             features_np = self._predict_transform_features(
                 features=features_np,
                 locality_context=projector_locality_context,
             )
-            capture_slot("transform", _batch_major_flat_payload(features_np, batchsize))
+            capture_slot("transform", _batch_major_payload(features_np, batchsize))
             features_np = self._predict_projector2_features(
                 features=features_np,
                 locality_context=projector_locality_context,
             )
-            capture_slot("proj2", np.asarray(features_np))
+            capture_slot("proj2", _batch_major_payload(features_np, batchsize))
 
             features_f32 = np.asarray(features_np).astype(np.float32, copy=False)
             patch_shape = (int(patch_shapes[0][0]), int(patch_shapes[0][1]))
@@ -552,15 +564,23 @@ def _tensor_payload(value: torch.Tensor) -> np.ndarray:
     return value.detach().cpu().numpy()
 
 
-def _tensor_sequence_payload(values: Iterable[torch.Tensor]) -> dict[str, np.ndarray]:
+def _tensor_sequence_payload(
+    values: Iterable[torch.Tensor],
+    *,
+    batch_size: int,
+) -> dict[str, np.ndarray]:
     return {
-        f"layer_{index}": _tensor_payload(value)
+        f"layer_{index}": _batch_major_payload(_tensor_payload(value), batch_size)
         for index, value in enumerate(values)
     }
 
 
-def _batch_major_flat_payload(value: np.ndarray, batch_size: int) -> np.ndarray:
+def _batch_major_payload(value: np.ndarray, batch_size: int) -> np.ndarray:
     array = np.asarray(value)
+    if array.ndim == 0:
+        raise ValueError("Slot payload must include a batch dimension.")
+    if array.shape[0] == batch_size:
+        return np.ascontiguousarray(array)
     if array.shape[0] % batch_size != 0:
         raise ValueError(
             "Slot payload cannot be flattened batch-major because its first "

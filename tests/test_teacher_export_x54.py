@@ -11,6 +11,7 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
+from mhpc.core.predict_engine import _batch_major_payload
 import mhpc.eval.pipeline as pipeline_module
 from mhpc.eval.frozen_replay import (
     FrozenReplayBatch,
@@ -379,6 +380,60 @@ def test_x54_frozen_train_replay_writes_selected_slot_hdf5_artifacts(
         "good",
         "good",
     ]
+
+
+def test_x54_replay_slot_payload_normalizer_preserves_image_rows() -> None:
+    patch_major = np.arange(2 * 4 * 3, dtype=np.float32).reshape(8, 3)
+    normalized = _batch_major_payload(patch_major, batch_size=2)
+    assert normalized.shape == (2, 12)
+    np.testing.assert_array_equal(normalized[0], patch_major[:4].reshape(-1))
+    np.testing.assert_array_equal(normalized[1], patch_major[4:].reshape(-1))
+
+    batch_major = np.zeros((2, 3, 4, 4), dtype=np.float32)
+    assert _batch_major_payload(batch_major, batch_size=2).shape == (2, 3, 4, 4)
+
+
+def test_x54_frozen_replay_rejects_non_batch_major_slot_payload(
+    tmp_path: Path,
+) -> None:
+    loader = _make_replay_loader(("good", "broken_large"))
+
+    class _BadSlotReplayModel:
+        _stage_owned_state: dict[str, dict[str, object]] = {}
+        anomaly_scorer = SimpleNamespace(detection_features=None)
+
+        def infer_batch_with_slot_outputs(
+            self,
+            images: torch.Tensor,
+            *,
+            selected_slots: tuple[str, ...],
+        ) -> SimpleNamespace:
+            batch_size = int(images.shape[0])
+            assert selected_slots == ("transform",)
+            return SimpleNamespace(
+                prediction=SimpleNamespace(
+                    image_scores=[0.0 for _ in range(batch_size)],
+                    pred_maps=[
+                        np.zeros((2, 2), dtype=np.float32)
+                        for _ in range(batch_size)
+                    ],
+                ),
+                slot_outputs={
+                    "transform": np.zeros((batch_size + 1, 2), dtype=np.float32),
+                },
+            )
+
+    config = _make_config()
+    config.teacher_export.replay = SimpleNamespace(enabled=True, slots=("transform",))
+
+    with pytest.raises(ValueError, match="first dimension must match batch size"):
+        run_frozen_train_replay(
+            config=config,  # type: ignore[arg-type]
+            model=_BadSlotReplayModel(),
+            dataset_name="bottle",
+            train_loader=loader,
+            artifacts_root=tmp_path / "artifacts",
+        )
 
 
 def test_x54_frozen_train_replay_fails_when_selected_slot_is_missing(

@@ -92,6 +92,11 @@ class SlotReplayArtifactWriter:
             )
         for slot_name in self._selected_slots:
             slot_payload = replay_batch.slot_outputs[slot_name]
+            _validate_payload_batch_rows(
+                slot_payload,
+                batch_size=batch_size,
+                slot_name=slot_name,
+            )
             for sample_group, row_indices in grouped_rows.items():
                 output_path = (
                     self._dataset_root
@@ -444,6 +449,42 @@ def _slice_payload_rows(
     raise TypeError(
         "Frozen replay slot payload must be a numpy array or mapping of arrays; "
         f"got {type(payload).__name__}."
+    )
+
+
+def _validate_payload_batch_rows(
+    payload: SlotOutputPayload,
+    *,
+    batch_size: int,
+    slot_name: str,
+) -> None:
+    for array_name, value in _iter_payload_arrays(payload, slot_name=slot_name):
+        array = np.asarray(value)
+        if array.ndim == 0:
+            raise ValueError(
+                "Frozen replay slot payload must include a batch dimension: "
+                f"slot='{slot_name}' array='{array_name}'."
+            )
+        if int(array.shape[0]) != batch_size:
+            raise ValueError(
+                "Frozen replay slot payload first dimension must match batch size: "
+                f"slot='{slot_name}' array='{array_name}' "
+                f"first_dim={array.shape[0]} batch_size={batch_size}."
+            )
+
+
+def _iter_payload_arrays(
+    payload: SlotOutputPayload,
+    *,
+    slot_name: str,
+) -> tuple[tuple[str, Any], ...]:
+    if isinstance(payload, np.ndarray):
+        return (("value", payload),)
+    if isinstance(payload, Mapping):
+        return tuple((str(name), value) for name, value in payload.items())
+    raise TypeError(
+        "Frozen replay slot payload must be a numpy array or mapping of arrays; "
+        f"slot='{slot_name}' type={type(payload).__name__}."
     )
 
 
