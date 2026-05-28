@@ -6,7 +6,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-mvtec_datasets/
+mvtec_datasets
 results/
 logs/
 *.log

@@ -20,6 +20,7 @@ from mhpc.eval.data_loading import (
     build_dataset_loaders,
     resolve_dataset_plan,
 )
+from mhpc.eval.frozen_replay import run_frozen_test_eval, run_frozen_train_replay
 from mhpc.eval.metrics import (
     compute_binary_metrics,
     compute_image_aupro,
@@ -50,6 +51,13 @@ from mhpc.eval.reproducibility import (
     apply_reproducibility_preamble,
     build_reproducibility_preamble,
 )
+from mhpc.eval.teacher_export import (
+    save_teacher_checkpoint,
+    save_teacher_memory_bank_artifact,
+    teacher_checkpoint_enabled,
+    teacher_memory_bank_enabled,
+    teacher_replay_enabled,
+)
 from mhpc.util.param_binding import build_plugin_bind_context
 from mhpc.util.progress import (
     DATASETS_PROGRESS_DESC,
@@ -75,7 +83,7 @@ def _build_model(
     device: torch.device,
     plugin_bundle=None,
 ):
-    """Compatibility wrapper preserving monkeypatch seams in tests."""
+    """Build the runtime model through the pipeline-owned construction hook."""
     return _build_model_impl(
         config=config,
         device=device,
@@ -89,7 +97,7 @@ def _build_calibration_train_loader(
     dataset_name: str,
     dataloader_plugin: DataLoaderPlugin,
 ):
-    """Compatibility wrapper preserving helper monkeypatch seam."""
+    """Build the calibration loader through the pipeline-owned helper hook."""
     return _build_calibration_train_loader_impl(
         config=config,
         dataset_name=dataset_name,
@@ -108,7 +116,7 @@ def _save_dataset_artifacts(
     overlay_alpha: float,
     artifacts_root,
 ) -> None:
-    """Compatibility wrapper preserving artifact-writer monkeypatch seam."""
+    """Save rendered sample artifacts through the pipeline-owned writer hook."""
     _save_dataset_artifacts_impl(
         dataset_name=dataset_name,
         test_loader=test_loader,
@@ -238,6 +246,60 @@ def run_experiment(config: RunConfig) -> pd.DataFrame:
                 with _profile_phase(profiler, "fit"):
                     model.fit(train_loader)
 
+                if teacher_checkpoint_enabled(config):
+                    dataset_iterator.set_postfix(
+                        make_progress_postfix(
+                            batch=dataset_idx,
+                            total=datasets_total,
+                            phase=f"{dataset_name}:teacher_checkpoint",
+                        ),
+                        refresh=False,
+                    )
+                    with _profile_phase(profiler, "teacher_checkpoint"):
+                        save_teacher_checkpoint(
+                            config=config,
+                            model=model,
+                            dataset_name=dataset_name,
+                            train_loader=train_loader,
+                            artifacts_root=artifacts_root,
+                        )
+
+                if teacher_memory_bank_enabled(config):
+                    dataset_iterator.set_postfix(
+                        make_progress_postfix(
+                            batch=dataset_idx,
+                            total=datasets_total,
+                            phase=f"{dataset_name}:memory_bank_artifact",
+                        ),
+                        refresh=False,
+                    )
+                    with _profile_phase(profiler, "memory_bank_artifact"):
+                        save_teacher_memory_bank_artifact(
+                            config=config,
+                            model=model,
+                            dataset_name=dataset_name,
+                            train_loader=train_loader,
+                            artifacts_root=artifacts_root,
+                        )
+
+                if teacher_replay_enabled(config):
+                    dataset_iterator.set_postfix(
+                        make_progress_postfix(
+                            batch=dataset_idx,
+                            total=datasets_total,
+                            phase=f"{dataset_name}:teacher_replay",
+                        ),
+                        refresh=False,
+                    )
+                    with _profile_phase(profiler, "teacher_replay"):
+                        run_frozen_train_replay(
+                            config=config,
+                            model=model,
+                            dataset_name=dataset_name,
+                            train_loader=train_loader,
+                            artifacts_root=artifacts_root,
+                        )
+
                 dataset_iterator.set_postfix(
                     make_progress_postfix(
                         batch=dataset_idx,
@@ -272,6 +334,24 @@ def run_experiment(config: RunConfig) -> pd.DataFrame:
                 )
                 with _profile_phase(profiler, "infer"):
                     prediction = model.infer_dataloader(test_loader)
+
+                if teacher_replay_enabled(config):
+                    dataset_iterator.set_postfix(
+                        make_progress_postfix(
+                            batch=dataset_idx,
+                            total=datasets_total,
+                            phase=f"{dataset_name}:teacher_eval",
+                        ),
+                        refresh=False,
+                    )
+                    with _profile_phase(profiler, "teacher_eval"):
+                        run_frozen_test_eval(
+                            config=config,
+                            model=model,
+                            dataset_name=dataset_name,
+                            test_loader=test_loader,
+                            artifacts_root=artifacts_root,
+                        )
 
                 image_scores_arr = np.asarray(prediction.image_scores, dtype=np.float64)
                 image_labels_arr = np.asarray(prediction.image_labels, dtype=np.int32)

@@ -121,6 +121,37 @@ class ArtifactConfig:
 
 
 @dataclass(frozen=True)
+class TeacherExportCheckpointConfig:
+    """Frozen-teacher checkpoint export settings."""
+
+    enabled: bool
+
+
+@dataclass(frozen=True)
+class TeacherExportMemoryBankConfig:
+    """Frozen-teacher memory-bank artifact export settings."""
+
+    enabled: bool
+
+
+@dataclass(frozen=True)
+class TeacherExportReplayConfig:
+    """Frozen-teacher replay artifact export settings."""
+
+    enabled: bool
+    slots: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TeacherExportConfig:
+    """Config-gated frozen-teacher export settings."""
+
+    checkpoint: TeacherExportCheckpointConfig
+    memory_bank: TeacherExportMemoryBankConfig
+    replay: TeacherExportReplayConfig
+
+
+@dataclass(frozen=True)
 class ProgressRenderConfig:
     """Progress-bar rendering policy."""
 
@@ -198,6 +229,7 @@ class RunConfig:
     training: PipelineTrainingConfig
     evaluation: EvaluationConfig
     artifacts: ArtifactConfig
+    teacher_export: TeacherExportConfig
     render: RenderConfig
     slot_params: dict[str, dict[str, Any]]
     plugins: PluginSelectionConfig
@@ -242,13 +274,16 @@ def load_run_config(config_path: str | Path) -> RunConfig:
     pipeline_cfg = _require_mapping(raw_obj, "pipeline")
     training_cfg = _parse_pipeline_training(pipeline_cfg)
     slot_params_by_stage = _parse_pipeline_slot_params(pipeline_cfg)
-    _reject_legacy_slot_owned_parameter_surfaces(raw_obj)
+    _reject_removed_slot_owned_parameter_surfaces(raw_obj)
 
     experiment_cfg = _parse_experiment(_require_mapping(raw_obj, "experiment"))
     paths_cfg = _parse_paths(_require_mapping(raw_obj, "paths"))
     runtime_cfg = _parse_runtime(_require_mapping(raw_obj, "runtime"))
     evaluation_cfg = _parse_evaluation(_require_mapping(raw_obj, "evaluation"))
     artifacts_cfg = _parse_artifacts(_require_mapping(raw_obj, "artifacts"))
+    teacher_export_cfg = _parse_teacher_export(
+        _require_optional_mapping(raw_obj, "teacher_export")
+    )
     render_cfg = _parse_render(_require_optional_mapping(raw_obj, "render"))
     plugins_cfg = _parse_plugin_selection(
         _require_optional_mapping(raw_obj, "plugins"),
@@ -270,6 +305,7 @@ def load_run_config(config_path: str | Path) -> RunConfig:
         training=training_cfg,
         evaluation=evaluation_cfg,
         artifacts=artifacts_cfg,
+        teacher_export=teacher_export_cfg,
         render=render_cfg,
         slot_params={
             stage_name: dict(params)
@@ -279,20 +315,20 @@ def load_run_config(config_path: str | Path) -> RunConfig:
     )
 
 
-def _reject_legacy_slot_owned_parameter_surfaces(cfg: Mapping[str, Any]) -> None:
-    """Fail fast when legacy slot-owned keys appear outside slot params."""
-    forbidden_surface_paths = _collect_legacy_slot_owned_surface_paths(cfg)
+def _reject_removed_slot_owned_parameter_surfaces(cfg: Mapping[str, Any]) -> None:
+    """Fail fast when removed slot-owned keys appear outside slot params."""
+    forbidden_surface_paths = _collect_removed_slot_owned_surface_paths(cfg)
     if not forbidden_surface_paths:
         return
 
     forbidden_surface_path = forbidden_surface_paths[0]
     raise ValueError(
-        "Legacy slot-owned parameter key is not allowed outside "
+        "Removed slot-owned parameter key is not allowed outside "
         f"pipeline.slots.<slot>.params: {forbidden_surface_path}"
     )
 
 
-def _collect_legacy_slot_owned_surface_paths(
+def _collect_removed_slot_owned_surface_paths(
     cfg: Mapping[str, Any],
 ) -> tuple[str, ...]:
     paths: list[str] = []
@@ -461,7 +497,7 @@ def _parse_pipeline_slot_params(
             )
         if stage_name in _EXPLICIT_TRAINABLE_STAGES and "fit_epochs" in params_cfg:
             raise ValueError(
-                "Legacy slot fit_epochs is forbidden in pipeline.slots.<stage>.params; "
+                "Slot fit_epochs is not allowed in pipeline.slots.<stage>.params; "
                 f"use pipeline.training.fit_epochs.{stage_name}."
             )
         params_by_stage[stage_name] = params_cfg
@@ -599,6 +635,110 @@ def _parse_artifacts(cfg: Mapping[str, Any]) -> ArtifactConfig:
     )
 
 
+def _parse_teacher_export(
+    cfg: Mapping[str, Any] | None,
+) -> TeacherExportConfig:
+    raw_cfg: Mapping[str, Any]
+    if cfg is None:
+        raw_cfg = {}
+    else:
+        raw_cfg = cfg
+    _ensure_allowed_keys(
+        raw_cfg,
+        allowed_keys={"checkpoint", "memory_bank", "replay"},
+        context="teacher_export",
+    )
+
+    checkpoint_cfg = _parse_teacher_export_enabled_block(
+        _require_optional_mapping(raw_cfg, "checkpoint"),
+        context="teacher_export.checkpoint",
+    )
+    memory_bank_cfg = _parse_teacher_export_enabled_block(
+        _require_optional_mapping(raw_cfg, "memory_bank"),
+        context="teacher_export.memory_bank",
+    )
+    replay_cfg = _parse_teacher_export_replay(
+        _require_optional_mapping(raw_cfg, "replay")
+    )
+    return TeacherExportConfig(
+        checkpoint=TeacherExportCheckpointConfig(enabled=checkpoint_cfg),
+        memory_bank=TeacherExportMemoryBankConfig(enabled=memory_bank_cfg),
+        replay=replay_cfg,
+    )
+
+
+def _parse_teacher_export_enabled_block(
+    cfg: Mapping[str, Any] | None,
+    *,
+    context: str,
+) -> bool:
+    raw_cfg: Mapping[str, Any]
+    if cfg is None:
+        raw_cfg = {}
+    else:
+        raw_cfg = cfg
+    _ensure_allowed_keys(raw_cfg, allowed_keys={"enabled"}, context=context)
+    try:
+        return _require_optional_bool(raw_cfg, "enabled", default=False)
+    except ValueError as exc:
+        if str(exc) == "enabled must be a boolean":
+            raise ValueError(f"{context}.enabled must be a boolean") from exc
+        raise
+
+
+def _parse_teacher_export_replay(
+    cfg: Mapping[str, Any] | None,
+) -> TeacherExportReplayConfig:
+    raw_cfg: Mapping[str, Any]
+    if cfg is None:
+        raw_cfg = {}
+    else:
+        raw_cfg = cfg
+    _ensure_allowed_keys(
+        raw_cfg,
+        allowed_keys={"enabled", "slots"},
+        context="teacher_export.replay",
+    )
+    enabled = _require_optional_bool(raw_cfg, "enabled", default=False)
+    raw_slots = raw_cfg.get("slots", ())
+    if raw_slots is None:
+        raw_slots = ()
+    if not isinstance(raw_slots, (list, tuple)):
+        raise ValueError("teacher_export.replay.slots must be a list of slot names")
+    slots: list[str] = []
+    for slot in raw_slots:
+        if not isinstance(slot, str) or not slot:
+            raise ValueError(
+                "teacher_export.replay.slots must contain non-empty slot names"
+            )
+        slots.append(slot)
+    duplicates = sorted({slot for slot in slots if slots.count(slot) > 1})
+    if duplicates:
+        raise ValueError(
+            "teacher_export.replay.slots contains duplicate slots: "
+            f"{', '.join(duplicates)}"
+        )
+    known_stages = set(_CANONICAL_PLUGIN_STAGES)
+    unknown = sorted(set(slots) - known_stages)
+    if unknown:
+        raise ValueError(
+            "teacher_export.replay.slots contains unsupported stages: "
+            f"{', '.join(unknown)}"
+        )
+    train_only = [slot for slot in slots if slot in {"mem_agg", "materialize"}]
+    if train_only:
+        raise ValueError(
+            "teacher_export.replay.slots cannot include state-artifact stages: "
+            f"{', '.join(train_only)}"
+        )
+    if enabled and not slots:
+        raise ValueError(
+            "teacher_export.replay.slots must list at least one canonical slot "
+            "when teacher_export.replay.enabled is true"
+        )
+    return TeacherExportReplayConfig(enabled=enabled, slots=tuple(slots))
+
+
 def _parse_render(cfg: Mapping[str, Any] | None) -> RenderConfig:
     raw_cfg: Mapping[str, Any]
     if cfg is None:
@@ -714,7 +854,7 @@ def _parse_plugin_selection(
 
     if raw_cfg is not None:
         raise ValueError(
-            "Legacy top-level plugins selection block is forbidden. "
+            "Top-level plugins selection block is not supported. "
             "Use pipeline.slots.<slot>.{plugin,params} for all canonical stages."
         )
     if slots_cfg is None:

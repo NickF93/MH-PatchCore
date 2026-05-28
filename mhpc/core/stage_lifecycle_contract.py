@@ -18,7 +18,7 @@ class StageLifecycleSelection:
 
 @runtime_checkable
 class StageLifecycle(Protocol):
-    """Generic lifecycle contract used by train/inference orchestrators."""
+    """Generic lifecycle contract used by train/inference coordinators."""
 
     def train_start(self) -> None:
         """Initialize or reset stage-owned train-time state."""
@@ -57,4 +57,3 @@ def validate_stage_lifecycle_object(
             "Lifecycle object does not satisfy StageLifecycle contract: "
             f"stage='{stage_name}' type='{type(lifecycle).__name__}'"
         )
-

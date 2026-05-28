@@ -1,4 +1,4 @@
-"""Generic TRAIN pipeline orchestrator with canonical stage-order contracts."""
+"""Generic TRAIN pipeline coordinator with canonical stage-order contracts."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from .stage_lifecycle_contract import StageLifecycleSelection
 
 
 class TrainPipeline:
-    """Host-owned TRAIN orchestrator using canonical stage-order contracts."""
+    """Host-owned TRAIN coordinator using canonical stage-order contracts."""
 
     def __init__(self, model: Any) -> None:
         self._model = model

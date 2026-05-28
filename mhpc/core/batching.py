@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,6 +17,7 @@ class NormalizedBatch:
     images: torch.Tensor
     labels: list[int]
     masks: list[np.ndarray]
+    metadata: dict[str, Any]
 
 
 def normalize_batch(
@@ -27,13 +29,15 @@ def normalize_batch(
 
     Supported inputs:
     - ``torch.Tensor`` with shape ``[C,H,W]`` or ``[B,C,H,W]``
-    - ``dict`` containing ``"image"`` and optional ``"is_anomaly"``, ``"mask"``
+    - ``dict`` containing ``"image"``, optional ``"is_anomaly"``, ``"mask"``,
+      and optional transparent ``"metadata"`` sidecar
     - ``tuple``/``list`` where index 0 is image tensor and index 1 is mask tensor
       (optional when ``include_targets=False``)
     """
     images: torch.Tensor
     labels: list[int] = []
     masks: list[np.ndarray] = []
+    metadata: dict[str, Any] = {}
 
     if isinstance(batch, torch.Tensor):
         images = _normalize_image_tensor(batch)
@@ -41,6 +45,7 @@ def normalize_batch(
         if "image" not in batch:
             raise ValueError("Dictionary batch must contain key 'image'.")
         images = _normalize_image_tensor(batch["image"])
+        metadata = _to_metadata_dict(batch.get("metadata"))
         if include_targets:
             labels = _to_label_list(batch.get("is_anomaly"))
             masks = _to_mask_list(batch.get("mask"))
@@ -59,7 +64,7 @@ def normalize_batch(
             f"got {type(batch).__name__}."
         )
 
-    return NormalizedBatch(images=images, labels=labels, masks=masks)
+    return NormalizedBatch(images=images, labels=labels, masks=masks, metadata=metadata)
 
 
 def _normalize_image_tensor(images: Any) -> torch.Tensor:
@@ -115,6 +120,18 @@ def _to_mask_list(masks: Any) -> list[np.ndarray]:
     raise TypeError(
         "Mask payload must be Tensor, ndarray, list, tuple, or None; "
         f"got {type(masks).__name__}."
+    )
+
+
+def _to_metadata_dict(metadata: Any) -> dict[str, Any]:
+    """Convert optional metadata sidecars to a detached dictionary."""
+    if metadata is None:
+        return {}
+    if isinstance(metadata, Mapping):
+        return dict(metadata)
+    raise TypeError(
+        "Metadata payload must be a mapping or None; "
+        f"got {type(metadata).__name__}."
     )
 
 

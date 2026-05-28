@@ -60,8 +60,8 @@ def _create_feature_reduction_strategy_default(
     )
 
 
-# Backward-compatible test seams: tests monkeypatch these symbols to inject
-# deterministic strategy stubs without altering runtime code paths.
+# Module-level construction hooks used by tests to inject deterministic strategy
+# stubs without changing runtime code paths.
 create_aggregation_strategy: Any = _create_aggregation_strategy_default
 create_feature_reduction_strategy: Any = _create_feature_reduction_strategy_default
 
@@ -363,7 +363,7 @@ class FitEngine:
         *,
         features: np.ndarray,
     ) -> np.ndarray:
-        """Preserve legacy global float64 transform output before memory aggregation."""
+        """Preserve global float64 transform output before memory aggregation."""
         handoff = np.asarray(features)
         if (
             self._model._uses_transform_state()

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from typing import Any, cast
 
 import numpy as np
 import torch
 
 from .batching import normalize_batch
+from .inference_output_contract import InferenceBatchOutput, as_inference_batch_output
 from .locality_state_helpers import (
     flatten_distance_query_payload,
     resolve_anomaly_scorer_memory_bank,
@@ -25,6 +28,17 @@ from mhpc.util.progress import (
     create_progress_bar,
     make_progress_postfix,
 )
+
+SlotOutputPayload = np.ndarray | Mapping[str, np.ndarray]
+
+
+@dataclass(frozen=True)
+class SlotInferenceBatchOutput:
+    """Inference prediction plus selected generic slot-boundary payloads."""
+
+    prediction: InferenceBatchOutput
+    slot_outputs: Mapping[str, SlotOutputPayload]
+
 
 class PredictEngine:
     """Coordinate inference orchestration and own predict-only runtime semantics."""
@@ -353,3 +367,230 @@ class PredictEngine:
         return [float(score) for score in image_scores], [
             np.asarray(mask) for mask in masks
         ]
+
+    def predict_batch_with_slot_outputs(
+        self,
+        images: torch.Tensor,
+        *,
+        selected_slots: Iterable[str],
+    ) -> SlotInferenceBatchOutput:
+        """Run one-batch inference and collect selected generic slot payloads."""
+
+        selected = tuple(selected_slots)
+        selected_set = set(selected)
+        slot_outputs: dict[str, SlotOutputPayload] = {}
+
+        def _capture(slot_name: str, payload: SlotOutputPayload) -> None:
+            if slot_name in selected_set:
+                slot_outputs[slot_name] = payload
+
+        batch_scores, batch_masks = self._predict_batch_with_capture(
+            images,
+            capture_slot=_capture,
+        )
+        missing_slots = [slot for slot in selected if slot not in slot_outputs]
+        if missing_slots:
+            raise RuntimeError(
+                "Selected replay slots could not produce generic export payloads: "
+                f"{', '.join(missing_slots)}."
+            )
+        return SlotInferenceBatchOutput(
+            prediction=as_inference_batch_output((batch_scores, batch_masks)),
+            slot_outputs=slot_outputs,
+        )
+
+    def _predict_batch_with_capture(
+        self,
+        images: torch.Tensor,
+        *,
+        capture_slot,
+    ) -> tuple[list[float], list[np.ndarray]]:
+        images = images.to(torch.float).to(self._model._device)
+        self._model.forward_modules.eval()
+        self._model._backbone.eval()
+
+        batchsize = int(images.shape[0])
+        with torch.no_grad():
+            backbone_features = self._model._capture_embed_features(images)
+            capture_slot(
+                "backbone",
+                _tensor_sequence_payload(backbone_features, batch_size=batchsize),
+            )
+
+            patch_features, patch_shapes = self._model._patchify_and_align_features(
+                backbone_features
+            )
+            capture_slot(
+                "patch_align",
+                _tensor_sequence_payload(patch_features, batch_size=batchsize),
+            )
+
+            projector_locality_context = build_locality_context_if_required(
+                batch_size=batchsize,
+                patch_shapes=patch_shapes,
+                plugins=(
+                    self._model._proj1_plugin,
+                    self._model._transform_plugin,
+                    self._model._proj2_plugin,
+                ),
+            )
+            distance_locality_context = build_locality_context_if_required(
+                batch_size=batchsize,
+                patch_shapes=patch_shapes,
+                plugins=(self._model._distance_plugin,),
+            )
+            scoring_locality_context = build_locality_context_if_required(
+                batch_size=batchsize,
+                patch_shapes=patch_shapes,
+                plugins=(self._model._scoring_plugin,),
+            )
+
+            processed = self._model._preprocess_plugin.forward_embed_preprocess(
+                features=patch_features,
+                forward_modules=self._model.forward_modules,
+            )
+            capture_slot(
+                "preprocess",
+                _batch_major_payload(_tensor_payload(processed), batchsize),
+            )
+            processed = (
+                self._model._feature_agg_plugin.forward_embed_feature_aggregation(
+                    features=processed,
+                    forward_modules=self._model.forward_modules,
+                )
+            )
+            processed = self._model._proj1_plugin.forward_embed_projector1(
+                features=processed,
+                forward_modules=self._model.forward_modules,
+                **slot_locality_kwargs(
+                    plugin=self._model._proj1_plugin,
+                    locality_context=projector_locality_context,
+                ),
+            )
+            processed = self._model._transform_plugin.forward_embed_transform(
+                features=processed,
+                forward_modules=self._model.forward_modules,
+                **slot_locality_kwargs(
+                    plugin=self._model._transform_plugin,
+                    locality_context=projector_locality_context,
+                ),
+            )
+            processed = self._model._proj2_plugin.forward_embed_projector2(
+                features=processed,
+                forward_modules=self._model.forward_modules,
+                **slot_locality_kwargs(
+                    plugin=self._model._proj2_plugin,
+                    locality_context=projector_locality_context,
+                ),
+            )
+
+            features_np = self._predict_reduce_features(_tensor_payload(processed))
+            capture_slot(
+                "feature_agg",
+                _batch_major_payload(features_np, batchsize),
+            )
+            features_np = self._predict_projector1_features(
+                features=features_np,
+                locality_context=projector_locality_context,
+            )
+            capture_slot("proj1", _batch_major_payload(features_np, batchsize))
+            features_np = self._predict_transform_features(
+                features=features_np,
+                locality_context=projector_locality_context,
+            )
+            capture_slot("transform", _batch_major_payload(features_np, batchsize))
+            features_np = self._predict_projector2_features(
+                features=features_np,
+                locality_context=projector_locality_context,
+            )
+            capture_slot("proj2", _batch_major_payload(features_np, batchsize))
+
+            features_f32 = np.asarray(features_np).astype(np.float32, copy=False)
+            patch_shape = (int(patch_shapes[0][0]), int(patch_shapes[0][1]))
+            distance_query, patch_scores, query_distances, query_nns = (
+                self._predict_query_distance(
+                    features=features_f32,
+                    batchsize=batchsize,
+                    patch_shape=patch_shape,
+                    locality_context=distance_locality_context,
+                )
+            )
+            capture_slot(
+                "distance",
+                {
+                    "distance_map": np.asarray(patch_scores).reshape(batchsize, -1),
+                },
+            )
+            image_scores, effective_patch_scores = self._predict_score_batch(
+                features=features_f32,
+                patch_scores=patch_scores,
+                query_distances=query_distances,
+                query_nns=query_nns,
+                distance_query=distance_query,
+                patch_shape=patch_shape,
+                batchsize=batchsize,
+                locality_context=scoring_locality_context,
+            )
+            patch_scores_tensor = torch.as_tensor(
+                effective_patch_scores,
+                dtype=torch.float32,
+            )
+            patch_score_grid = self._model.patch_maker.unpatch_scores(
+                patch_scores_tensor,
+                batchsize=batchsize,
+            )
+            patch_score_grid = patch_score_grid.reshape(
+                batchsize,
+                int(patch_shape[0]),
+                int(patch_shape[1]),
+            )
+            masks = self._model.anomaly_segmentor.convert_to_segmentation(
+                patch_score_grid
+            )
+            capture_slot(
+                "scoring",
+                {
+                    "heatmap": np.asarray(masks).reshape(batchsize, -1),
+                    "score": np.asarray(image_scores),
+                },
+            )
+
+        return [float(score) for score in image_scores], [
+            np.asarray(mask) for mask in masks
+        ]
+
+
+def _tensor_payload(value: torch.Tensor) -> np.ndarray:
+    return value.detach().cpu().numpy()
+
+
+def _tensor_sequence_payload(
+    values: Iterable[torch.Tensor],
+    *,
+    batch_size: int,
+) -> dict[str, np.ndarray]:
+    return {
+        f"layer_{index}": _batch_major_payload(_tensor_payload(value), batch_size)
+        for index, value in enumerate(values)
+    }
+
+
+def _batch_major_payload(value: np.ndarray, batch_size: int) -> np.ndarray:
+    array = np.asarray(value)
+    if array.ndim == 0:
+        raise ValueError("Slot payload must include a batch dimension.")
+    if array.shape[0] == batch_size:
+        return np.ascontiguousarray(array)
+    if array.shape[0] % batch_size != 0:
+        raise ValueError(
+            "Slot payload cannot be flattened batch-major because its first "
+            f"dimension {array.shape[0]} is not divisible by batch size {batch_size}."
+        )
+    return np.ascontiguousarray(array.reshape(batch_size, -1))
+
+
+__all__ = [
+    "PredictEngine",
+    "SlotInferenceBatchOutput",
+    "SlotOutputPayload",
+]

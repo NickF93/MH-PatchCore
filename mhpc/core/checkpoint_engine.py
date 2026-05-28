@@ -10,6 +10,7 @@ import typing as _T
 
 import torch as _torch
 
+from .checkpoint_state_adapter import build_slot_state_checkpoint_payload
 from .locality_state_helpers import resolve_anomaly_scorer_memory_bank
 
 LOGGER = logging.getLogger(__name__)
@@ -37,15 +38,12 @@ class CheckpointEngine:
         return value
 
     def _build_stage_state_checkpoint_payload(self) -> dict[str, dict[str, _T.Any]]:
-        """Build stage-owned checkpoint payload with no legacy top-level fields."""
-        payload: dict[str, dict[str, _T.Any]] = {}
-        for stage_name in self._model._stage_owned_state.keys():
-            slot = self._model._stage_state_slot(stage_name)
-            payload[stage_name] = _T.cast(
-                dict[str, _T.Any],
-                self._checkpoint_serialize_value(slot),
-            )
-        return payload
+        """Build the stage-owned checkpoint payload with one top-level state map."""
+        return build_slot_state_checkpoint_payload(
+            stage_names=self._model._stage_owned_state.keys(),
+            stage_slot_for=self._model._stage_state_slot,
+            serialize_value=self._checkpoint_serialize_value,
+        )
 
     def _load_stage_state_checkpoint_payload(
         self,
@@ -68,7 +66,7 @@ class CheckpointEngine:
         )
         if unsupported_top_level:
             raise ValueError(
-                "Legacy checkpoint format is not supported. "
+                "Unsupported checkpoint format. "
                 "Found unsupported top-level checkpoint keys: "
                 f"{', '.join(unsupported_top_level)}"
             )
